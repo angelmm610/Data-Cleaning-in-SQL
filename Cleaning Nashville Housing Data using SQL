@@ -1,0 +1,172 @@
+/* 
+
+DATA CLEANING SQL PROJECT USING NASHVILLE PROPERTY DATA:
+
+Purpose is to make the dataset more usable and friendly.
+Making data more usable by deleting duplicate values and unused columns, 
+filling in null values, splitting columns, standardizing formats.
+
+*/
+
+
+--Familiarizing myself with the data
+
+SELECT * FROM nhd;
+
+
+--Populating property address data
+
+SELECT *
+FROM nhd
+WHERE propertyaddress IS NULL;
+
+
+--Using a Self JOIN to populate NULL values in propertyaddress column based on parcel_id
+
+SELECT a.unique_id, a.parcel_id, a.propertyaddress, b.unique_id, b.parcel_id, b.propertyaddress, 
+COALESCE(a.propertyaddress, b.propertyaddress)
+FROM nhd a
+JOIN nhd b
+ON a.parcel_id = b.parcel_id
+AND a.unique_id <> b.unique_id
+WHERE a.propertyaddress IS NULL;
+
+
+--Updating dataset with above JOIN statement, returned no NULL propertyaddress values after running query
+
+UPDATE nhd
+SET propertyaddress = COALESCE(a.propertyaddress, b.propertyaddress)
+FROM nhd a
+JOIN nhd b
+ON a.parcel_id = b.parcel_id
+AND a.unique_id <> b.unique_id
+WHERE a.propertyaddress IS NULL;
+
+
+--Dividing propertyaddress into individual address and city columns
+
+SELECT 
+SUBSTRING(propertyaddress, 1, STRPOS(propertyaddress, ',') - 1) , 
+SUBSTRING(propertyaddress, STRPOS(propertyaddress, ',') + 1, LENGTH(propertyaddress))
+FROM nhd;
+
+
+--Creating columns for new strings
+
+ALTER TABLE nhd
+ADD split_property_address VARCHAR(250);
+
+ALTER TABLE nhd
+ADD split_property_city VARCHAR(250);
+
+
+--Adding data to newly created columns
+
+UPDATE nhd
+SET split_property_address = SUBSTRING(propertyaddress, 1, STRPOS(propertyaddress, ',') - 1);
+
+UPDATE nhd
+SET split_property_city = SUBSTRING(propertyaddress, STRPOS(propertyaddress, ',') + 1, LENGTH(propertyaddress));
+
+
+--Dividing owneraddress into address, city and state columns using a different method
+
+SELECT
+SPLIT_PART(owneraddress, ', ', 1) AS split_owner_address,
+SPLIT_PART(owneraddress, ', ', 2) AS split_owner_city,
+SPLIT_PART(owneraddress, ', ', 3) AS split_owner_state
+FROM nhd;
+
+
+--Creating columns for new strings
+
+ALTER TABLE nhd
+ADD split_owner_address VARCHAR(250);
+
+ALTER TABLE nhd
+ADD split_owner_city VARCHAR(250);
+
+ALTER TABLE nhd
+ADD split_owner_state VARCHAR(250);
+
+
+--Adding data to newly created columns
+
+UPDATE nhd
+SET split_owner_address = SPLIT_PART(owneraddress, ', ', 1);
+
+UPDATE nhd
+SET split_owner_city = SPLIT_PART(owneraddress, ', ', 2);
+
+UPDATE nhd
+SET split_owner_state = SPLIT_PART(owneraddress, ', ', 3);
+
+
+--Updating Y and N values on soldasvacant column to have uniformity - All Yes and No
+
+SELECT 
+CASE WHEN soldasvacant = 'Y' THEN 'Yes'
+	 WHEN soldasvacant = 'N' THEN 'No'
+	 ELSE soldasvacant
+END
+FROM nhd;
+
+
+--UPDATE dataset with above CASE statement
+
+UPDATE nhd
+SET soldasvacant = 
+CASE WHEN soldasvacant = 'Y' THEN 'Yes'
+	 WHEN soldasvacant = 'N' THEN 'No'
+	 ELSE soldasvacant
+END;
+
+
+--Removing duplicates by creating a new table and using a sub-query
+
+CREATE TABLE nhd_unique AS (
+SELECT *
+FROM (SELECT *,
+		ROW_NUMBER() OVER(
+		PARTITION BY parcel_id, 
+			 		 propertyaddress, 
+			 		 saleprice, 
+			 		 saledate, 
+			 		 legalreference
+			 		 ORDER BY unique_id) row_num
+FROM nhd) AS a
+WHERE row_num = 1
+ORDER BY propertyaddress);
+
+
+--Checking results
+
+SELECT *
+FROM nhd_unique;
+
+SELECT * 
+FROM nhd;
+
+
+--Dropping unneeded column
+
+ALTER TABLE nhd_unique
+DROP COLUMN row_num;
+
+
+--Dropping original table. **Let's assume that management gave me permission to do this
+
+DROP TABLE nhd;
+
+
+--Renaming updated table
+
+ALTER TABLE nhd_unique
+RENAME TO nhd;
+
+
+--Dropping unused columns
+
+ALTER TABLE nhd
+DROP COLUMN owneraddress, taxdistrict, propertyaddress;
+
